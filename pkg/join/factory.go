@@ -5,21 +5,22 @@ import (
 	"context"
 
 	"github.com/qiujian16/capi-importer/pkg/join/scenario"
+	"github.com/qiujian16/capi-importer/pkg/reader"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/discovery/cached/memory"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/clientcmd"
 	cmdutil "k8s.io/kubectl/pkg/cmd/util"
 	operatorv1 "open-cluster-management.io/api/operator/v1"
-	"open-cluster-management.io/clusteradm/pkg/helpers"
-	"open-cluster-management.io/clusteradm/pkg/helpers/reader"
-	"open-cluster-management.io/clusteradm/pkg/helpers/wait"
 )
 
 type Builder struct {
@@ -94,7 +95,7 @@ func (b *Builder) WithSpokeKubeConfig(config clientcmd.ClientConfig) *Builder {
 
 func (b *Builder) ApplyImport(ctx context.Context, dryRun, shouldWait bool, streams genericclioptions.IOStreams) ([]byte, error) {
 	f := cmdutil.NewFactory(b)
-	kubeClient, apiExtensionsClient, _, err := helpers.GetClients(f)
+	kubeClient, _, _, err := getClients(f)
 	if err != nil {
 		return nil, err
 	}
@@ -138,12 +139,6 @@ func (b *Builder) ApplyImport(ctx context.Context, dryRun, shouldWait bool, stre
 		return r.RawAppliedResources(), err
 	}
 
-	if !dryRun {
-		if err := wait.WaitUntilCRDReady(apiExtensionsClient, "klusterlets.operator.open-cluster-management.io", shouldWait); err != nil {
-			return r.RawAppliedResources(), err
-		}
-	}
-
 	err = r.Apply(scenario.Files, b.values, "join/klusterlets.cr.yaml")
 	if err != nil {
 		return r.RawAppliedResources(), err
@@ -178,4 +173,31 @@ func (b *Builder) ToRESTMapper() (meta.RESTMapper, error) {
 
 func (b *Builder) ToRawKubeConfigLoader() clientcmd.ClientConfig {
 	return b.spokeKubeConfig
+}
+
+func getClients(f cmdutil.Factory) (
+	kubeClient kubernetes.Interface,
+	apiExtensionsClient apiextensionsclient.Interface,
+	dynamicClient dynamic.Interface,
+	err error) {
+	kubeClient, err = f.KubernetesClientSet()
+	if err != nil {
+		return
+	}
+	dynamicClient, err = f.DynamicClient()
+	if err != nil {
+		return
+	}
+
+	var restConfig *rest.Config
+	restConfig, err = f.ToRESTConfig()
+	if err != nil {
+		return
+	}
+
+	apiExtensionsClient, err = apiextensionsclient.NewForConfig(restConfig)
+	if err != nil {
+		return
+	}
+	return
 }

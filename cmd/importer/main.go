@@ -34,7 +34,7 @@ func newImporterCommand() *cobra.Command {
 	cmdConfig := controllercmd.NewControllerCommandConfig("importer", version.Get(), opts.RunImporterController)
 	cmd := cmdConfig.NewCommandWithContext(context.TODO())
 	cmd.Use = "manager"
-	cmd.Short = "Start the Addon Manager"
+	cmd.Short = "Start the importer"
 	opts.AddFlags(cmd.Flags())
 	return cmd
 }

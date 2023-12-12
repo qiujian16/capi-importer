@@ -3,14 +3,15 @@ package join
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/ghodss/yaml"
 	authv1 "k8s.io/api/authentication/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	clientcmdapiv1 "k8s.io/client-go/tools/clientcmd/api/v1"
 	"k8s.io/utils/pointer"
-	"open-cluster-management.io/clusteradm/pkg/helpers"
 )
 
 type BootstrapGetter interface {
@@ -103,7 +104,7 @@ func (g *TokenBootStrapper) KubeConfig() (clientcmdapiv1.Config, error) {
 		clientConfig.Clusters[0].Cluster.CertificateAuthorityData = g.config.CA
 	} else {
 		// get ca data from, ca may empty(cluster-info exists with no ca data)
-		ca, err := helpers.GetCACert(g.client)
+		ca, err := getCACert(g.client)
 		if err != nil {
 			return clientConfig, err
 		}
@@ -111,4 +112,40 @@ func (g *TokenBootStrapper) KubeConfig() (clientcmdapiv1.Config, error) {
 	}
 
 	return clientConfig, nil
+}
+
+func getCACert(kubeClient kubernetes.Interface) ([]byte, error) {
+	config, err := getClusterInfoKubeConfig(kubeClient)
+	if err == nil {
+		clusters := config.Clusters
+		if len(clusters) != 1 {
+			return nil, fmt.Errorf("can not find the cluster in the cluster-info")
+		}
+		cluster := clusters[0].Cluster
+		return cluster.CertificateAuthorityData, nil
+	}
+	if errors.IsNotFound(err) {
+		cm, err := kubeClient.CoreV1().ConfigMaps("kube-public").Get(context.TODO(), "kube-root-ca.crt", metav1.GetOptions{})
+		if err == nil {
+			return []byte(cm.Data["ca.crt"]), nil
+		}
+		if errors.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return nil, err
+}
+
+func getClusterInfoKubeConfig(kubeClient kubernetes.Interface) (*clientcmdapiv1.Config, error) {
+	cm, err := kubeClient.CoreV1().ConfigMaps("kube-public").Get(context.TODO(), "cluster-info", metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+	config := &clientcmdapiv1.Config{}
+	err = yaml.Unmarshal([]byte(cm.Data["kubeconfig"]), config)
+	if err != nil {
+		return nil, err
+	}
+	return config, nil
 }
