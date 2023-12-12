@@ -12,11 +12,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 	clusterapiv1 "open-cluster-management.io/api/cluster/v1"
 )
+
+const byKey = "by-key"
 
 type ClusterServiceProvider struct {
 	handler cache.ResourceEventHandler
@@ -24,9 +25,12 @@ type ClusterServiceProvider struct {
 	token   string
 }
 
-func NewClusterServiceProvider(client kubernetes.Interface) provider.ClusterProvider {
+func NewClusterServiceProvider(token string) provider.ClusterProvider {
 	return &ClusterServiceProvider{
-		store: cache.NewStore(clusterKey),
+		store: cache.NewIndexer(clusterKey, cache.Indexers{
+			byKey: cache.MetaNamespaceIndexFunc,
+		}),
+		token: token,
 	}
 }
 
@@ -45,7 +49,16 @@ func (c *ClusterServiceProvider) Key(obj runtime.Object) []string {
 }
 
 func (c *ClusterServiceProvider) KubeConfig(clusterKey string) (clientcmd.ClientConfig, error) {
-
+	cluster, exist, err := c.store.GetByKey(clusterKey)
+	if err != nil {
+		return nil, err
+	}
+	if !exist {
+		return nil, fmt.Errorf("not found")
+	}
+	accesor, _ := meta.Accessor(cluster)
+	configString := accesor.GetAnnotations()["kubeconfig"]
+	return clientcmd.NewClientConfigFromBytes([]byte(configString))
 }
 
 func (c *ClusterServiceProvider) Name() string {
@@ -61,6 +74,7 @@ func (c *ClusterServiceProvider) poll() {
 		Debug(true).
 		Build()
 	if err != nil {
+		logger.Error(context.TODO(), err.Error())
 		return
 	}
 
@@ -70,6 +84,7 @@ func (c *ClusterServiceProvider) poll() {
 		Tokens(c.token).
 		Build()
 	if err != nil {
+		logger.Error(context.TODO(), err.Error())
 		return
 	}
 	defer connection.Close()
@@ -78,6 +93,7 @@ func (c *ClusterServiceProvider) poll() {
 	collection := connection.ClustersMgmt().V1().Clusters()
 	clusterList, err := collection.List().Send()
 	if err != nil {
+		logger.Error(context.TODO(), err.Error())
 		return
 	}
 
@@ -86,12 +102,24 @@ func (c *ClusterServiceProvider) poll() {
 		mcl := &clusterapiv1.ManagedCluster{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: cluster.Name(),
+				Annotations: map[string]string{
+					"id": cluster.ID(),
+				},
 			},
 		}
-		if _, exists, _ := c.store.Get(mcl); exists {
+		clusterCredential, err := collection.Cluster(cluster.ID()).Credentials().Get().Send()
+		if err != nil {
+			logger.Error(context.TODO(), err.Error())
 			return true
 		}
-		c.store.Add(mcl)
+		mcl.Annotations["kubeconfig"] = clusterCredential.Body().Kubeconfig()
+		if _, exists, _ := c.store.GetByKey(mcl.Name); exists {
+			return true
+		}
+		if err := c.store.Add(mcl); err != nil {
+			logger.Error(context.TODO(), err.Error())
+			return true
+		}
 		c.handler.OnAdd(mcl, false)
 		return true
 	})
