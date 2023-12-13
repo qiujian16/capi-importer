@@ -45,9 +45,6 @@ type ControllerCommandConfig struct {
 	// DisableServing disables serving metrics, debug and health checks and so on.
 	DisableServing bool
 
-	// Allow enabling HTTP2
-	EnableHTTP2 bool
-
 	// DisableLeaderElection allows leader election to be suspended
 	DisableLeaderElection bool
 
@@ -63,9 +60,6 @@ type ControllerCommandConfig struct {
 	// RetryPeriod is the duration the LeaderElector clients should wait
 	// between tries of actions.
 	RetryPeriod metav1.Duration
-
-	// TopologyDetector is used to plug in topology detection.
-	TopologyDetector TopologyDetector
 
 	ComponentOwnerReference *corev1.ObjectReference
 	healthChecks            []healthz.HealthChecker
@@ -94,11 +88,6 @@ func (c *ControllerCommandConfig) WithComponentOwnerReference(reference *corev1.
 
 func (c *ControllerCommandConfig) WithHealthChecks(healthChecks ...healthz.HealthChecker) *ControllerCommandConfig {
 	c.healthChecks = append(c.healthChecks, healthChecks...)
-	return c
-}
-
-func (c *ControllerCommandConfig) WithTopologyDetector(topologyDetector TopologyDetector) *ControllerCommandConfig {
-	c.TopologyDetector = topologyDetector
 	return c
 }
 
@@ -325,13 +314,6 @@ func (c *ControllerCommandConfig) StartController(ctx context.Context) error {
 
 	if !c.DisableServing {
 		builder = builder.WithServer(config.ServingInfo, config.Authentication, config.Authorization)
-		if c.EnableHTTP2 {
-			builder = builder.WithHTTP2()
-		}
-	}
-
-	if c.TopologyDetector != nil {
-		builder = builder.WithTopologyDetector(c.TopologyDetector)
 	}
 
 	return builder.Run(controllerCtx, unstructuredConfig)

@@ -4,14 +4,16 @@ package join
 import (
 	"context"
 
+	"github.com/openshift/library-go/pkg/assets"
+	"github.com/openshift/library-go/pkg/operator/events"
+	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	"github.com/qiujian16/capi-importer/pkg/join/scenario"
-	"github.com/qiujian16/capi-importer/pkg/reader"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/cli-runtime/pkg/genericclioptions"
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/discovery/cached/memory"
 	"k8s.io/client-go/dynamic"
@@ -19,12 +21,12 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/clientcmd"
-	cmdutil "k8s.io/kubectl/pkg/cmd/util"
 	operatorv1 "open-cluster-management.io/api/operator/v1"
 )
 
 type Builder struct {
 	values          Values
+	cache           resourceapply.ResourceCache
 	spokeKubeConfig clientcmd.ClientConfig
 }
 
@@ -80,7 +82,9 @@ type BundleVersion struct {
 }
 
 func NewBuilder() *Builder {
-	return &Builder{}
+	return &Builder{
+		cache: resourceapply.NewResourceCache(),
+	}
 }
 
 func (b *Builder) WithValues(v Values) *Builder {
@@ -93,13 +97,11 @@ func (b *Builder) WithSpokeKubeConfig(config clientcmd.ClientConfig) *Builder {
 	return b
 }
 
-func (b *Builder) ApplyImport(ctx context.Context, dryRun, shouldWait bool, streams genericclioptions.IOStreams) ([]byte, error) {
-	f := cmdutil.NewFactory(b)
-	kubeClient, _, _, err := getClients(f)
+func (b *Builder) ApplyImport(ctx context.Context, recorder events.Recorder) error {
+	kubeClient, apiExtensionClient, _, err := b.getClients()
 	if err != nil {
-		return nil, err
+		return err
 	}
-	r := reader.NewResourceReader(f.NewBuilder(), dryRun, streams)
 
 	_, err = kubeClient.CoreV1().Namespaces().Get(ctx, b.values.AgentNamespace, metav1.GetOptions{})
 	if errors.IsNotFound(err) {
@@ -112,10 +114,10 @@ func (b *Builder) ApplyImport(ctx context.Context, dryRun, shouldWait bool, stre
 			},
 		}, metav1.CreateOptions{})
 		if err != nil {
-			return nil, err
+			return err
 		}
 	} else if err != nil {
-		return nil, err
+		return err
 	}
 
 	var files []string
@@ -128,23 +130,33 @@ func (b *Builder) ApplyImport(ctx context.Context, dryRun, shouldWait bool, stre
 		"bootstrap_hub_kubeconfig.yaml",
 	)
 
-	if b.values.Klusterlet.Name == string(operatorv1.InstallModeHosted) {
-		files = append(files,
-			"join/hosted/external_managed_kubeconfig.yaml",
-		)
+	clientHolder := resourceapply.NewKubeClientHolder(kubeClient).WithAPIExtensionsClient(apiExtensionClient)
+	applyResults := resourceapply.ApplyDirectly(
+		ctx,
+		clientHolder,
+		recorder,
+		b.cache,
+		func(name string) ([]byte, error) {
+			template, err := scenario.Files.ReadFile(name)
+			if err != nil {
+				return nil, err
+			}
+			objData := assets.MustCreateAssetFromTemplate(name, template, b.values).Data
+			return objData, nil
+		},
+		files...,
+	)
+
+	var errs []error
+	for _, result := range applyResults {
+		if result.Error != nil {
+			errs = append(errs, err)
+		}
 	}
 
-	err = r.Apply(scenario.Files, b.values, files...)
-	if err != nil {
-		return r.RawAppliedResources(), err
-	}
+	// TODO create operator
 
-	err = r.Apply(scenario.Files, b.values, "join/klusterlets.cr.yaml")
-	if err != nil {
-		return r.RawAppliedResources(), err
-	}
-
-	return r.RawAppliedResources(), nil
+	return utilerrors.NewAggregate(errs)
 }
 
 func (b *Builder) ToRESTConfig() (*rest.Config, error) {
@@ -175,27 +187,25 @@ func (b *Builder) ToRawKubeConfigLoader() clientcmd.ClientConfig {
 	return b.spokeKubeConfig
 }
 
-func getClients(f cmdutil.Factory) (
+func (b *Builder) getClients() (
 	kubeClient kubernetes.Interface,
 	apiExtensionsClient apiextensionsclient.Interface,
 	dynamicClient dynamic.Interface,
 	err error) {
-	kubeClient, err = f.KubernetesClientSet()
+	config, err := b.spokeKubeConfig.ClientConfig()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	kubeClient, err = kubernetes.NewForConfig(config)
 	if err != nil {
 		return
 	}
-	dynamicClient, err = f.DynamicClient()
+	dynamicClient, err = dynamic.NewForConfig(config)
 	if err != nil {
 		return
 	}
 
-	var restConfig *rest.Config
-	restConfig, err = f.ToRESTConfig()
-	if err != nil {
-		return
-	}
-
-	apiExtensionsClient, err = apiextensionsclient.NewForConfig(restConfig)
+	apiExtensionsClient, err = apiextensionsclient.NewForConfig(config)
 	if err != nil {
 		return
 	}
