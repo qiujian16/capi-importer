@@ -3,26 +3,38 @@ package join
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/openshift/library-go/pkg/assets"
 	"github.com/openshift/library-go/pkg/operator/events"
 	"github.com/openshift/library-go/pkg/operator/resource/resourceapply"
 	"github.com/qiujian16/capi-importer/pkg/join/scenario"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
-	"k8s.io/client-go/discovery"
-	"k8s.io/client-go/discovery/cached/memory"
-	"k8s.io/client-go/dynamic"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/clientcmd"
+	operatorclient "open-cluster-management.io/api/client/operator/clientset/versioned"
 	operatorv1 "open-cluster-management.io/api/operator/v1"
 )
+
+var (
+	genericScheme = runtime.NewScheme()
+	genericCodecs = serializer.NewCodecFactory(genericScheme)
+	genericCodec  = genericCodecs.UniversalDeserializer()
+)
+
+func init() {
+	utilruntime.Must(appsv1.AddToScheme(genericScheme))
+	utilruntime.Must(operatorv1.Install(genericScheme))
+}
 
 type Builder struct {
 	values          Values
@@ -98,7 +110,7 @@ func (b *Builder) WithSpokeKubeConfig(config clientcmd.ClientConfig) *Builder {
 }
 
 func (b *Builder) ApplyImport(ctx context.Context, recorder events.Recorder) error {
-	kubeClient, apiExtensionClient, _, err := b.getClients()
+	kubeClient, apiExtensionClient, operatorClient, err := b.getClients()
 	if err != nil {
 		return err
 	}
@@ -130,20 +142,22 @@ func (b *Builder) ApplyImport(ctx context.Context, recorder events.Recorder) err
 		"bootstrap_hub_kubeconfig.yaml",
 	)
 
+	assetFunc := func(name string) ([]byte, error) {
+		template, err := scenario.Files.ReadFile(name)
+		if err != nil {
+			return nil, err
+		}
+		objData := assets.MustCreateAssetFromTemplate(name, template, b.values).Data
+		return objData, nil
+	}
+
 	clientHolder := resourceapply.NewKubeClientHolder(kubeClient).WithAPIExtensionsClient(apiExtensionClient)
 	applyResults := resourceapply.ApplyDirectly(
 		ctx,
 		clientHolder,
 		recorder,
 		b.cache,
-		func(name string) ([]byte, error) {
-			template, err := scenario.Files.ReadFile(name)
-			if err != nil {
-				return nil, err
-			}
-			objData := assets.MustCreateAssetFromTemplate(name, template, b.values).Data
-			return objData, nil
-		},
+		assetFunc,
 		files...,
 	)
 
@@ -154,43 +168,23 @@ func (b *Builder) ApplyImport(ctx context.Context, recorder events.Recorder) err
 		}
 	}
 
-	// TODO create operator
+	_, err = b.applyDeployment(ctx, kubeClient, assetFunc, recorder, "join/operator.yaml")
+	if err != nil {
+		errs = append(errs, err)
+	}
+
+	_, err = b.applyKlusterlet(ctx, operatorClient, assetFunc, recorder, "join/klusterlets.cr.yaml")
+	if err != nil {
+		errs = append(errs, err)
+	}
 
 	return utilerrors.NewAggregate(errs)
-}
-
-func (b *Builder) ToRESTConfig() (*rest.Config, error) {
-	return b.spokeKubeConfig.ClientConfig()
-}
-
-func (b *Builder) ToDiscoveryClient() (discovery.CachedDiscoveryInterface, error) {
-	restconfig, err := b.spokeKubeConfig.ClientConfig()
-	if err != nil {
-		return nil, err
-	}
-	dc, err := discovery.NewDiscoveryClientForConfig(restconfig)
-	if err != nil {
-		return nil, err
-	}
-	return memory.NewMemCacheClient(dc), nil
-}
-
-func (b *Builder) ToRESTMapper() (meta.RESTMapper, error) {
-	dc, err := b.ToDiscoveryClient()
-	if err != nil {
-		return nil, err
-	}
-	return restmapper.NewDeferredDiscoveryRESTMapper(dc), nil
-}
-
-func (b *Builder) ToRawKubeConfigLoader() clientcmd.ClientConfig {
-	return b.spokeKubeConfig
 }
 
 func (b *Builder) getClients() (
 	kubeClient kubernetes.Interface,
 	apiExtensionsClient apiextensionsclient.Interface,
-	dynamicClient dynamic.Interface,
+	operatorClient operatorclient.Interface,
 	err error) {
 	config, err := b.spokeKubeConfig.ClientConfig()
 	if err != nil {
@@ -200,7 +194,7 @@ func (b *Builder) getClients() (
 	if err != nil {
 		return
 	}
-	dynamicClient, err = dynamic.NewForConfig(config)
+	operatorClient, err = operatorclient.NewForConfig(config)
 	if err != nil {
 		return
 	}
@@ -210,4 +204,64 @@ func (b *Builder) getClients() (
 		return
 	}
 	return
+}
+
+func (b *Builder) applyDeployment(
+	ctx context.Context,
+	client kubernetes.Interface,
+	manifests resourceapply.AssetFunc,
+	recorder events.Recorder, file string) (*appsv1.Deployment, error) {
+	deploymentBytes, err := manifests(file)
+	if err != nil {
+		return nil, err
+	}
+	deployment, _, err := genericCodec.Decode(deploymentBytes, nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("%q: %v", file, err)
+	}
+
+	updatedDeployment, _, err := resourceapply.ApplyDeployment(
+		ctx,
+		client.AppsV1(),
+		recorder,
+		deployment.(*appsv1.Deployment), 0)
+	if err != nil {
+		return updatedDeployment, fmt.Errorf("%q (%T): %v", file, deployment, err)
+	}
+
+	return updatedDeployment, nil
+}
+
+func (b *Builder) applyKlusterlet(
+	ctx context.Context,
+	client operatorclient.Interface,
+	manifests resourceapply.AssetFunc,
+	recorder events.Recorder, file string) (*operatorv1.Klusterlet, error) {
+	klusterletBytes, err := manifests(file)
+	if err != nil {
+		return nil, err
+	}
+	object, _, err := genericCodec.Decode(klusterletBytes, nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("%q: %v", file, err)
+	}
+
+	desired := object.(*operatorv1.Klusterlet)
+
+	existing, err := client.OperatorV1().Klusterlets().Get(ctx, desired.Name, metav1.GetOptions{})
+	if errors.IsNotFound(err) {
+		created, createErr := client.OperatorV1().Klusterlets().Create(ctx, desired, metav1.CreateOptions{})
+		return created, createErr
+	} else if err != nil {
+		return nil, err
+	}
+
+	if equality.Semantic.DeepEqual(existing.Spec, desired.Spec) {
+		return existing, nil
+	}
+
+	existing.Spec = desired.Spec
+
+	updated, err := client.OperatorV1().Klusterlets().Update(ctx, existing, metav1.UpdateOptions{})
+	return updated, err
 }

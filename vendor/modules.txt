@@ -957,7 +957,6 @@ k8s.io/client-go/applyconfigurations/storage/v1
 k8s.io/client-go/applyconfigurations/storage/v1alpha1
 k8s.io/client-go/applyconfigurations/storage/v1beta1
 k8s.io/client-go/discovery
-k8s.io/client-go/discovery/cached/memory
 k8s.io/client-go/dynamic
 k8s.io/client-go/dynamic/dynamicinformer
 k8s.io/client-go/dynamic/dynamiclister
@@ -1128,7 +1127,6 @@ k8s.io/client-go/listers/storage/v1
 k8s.io/client-go/listers/storage/v1alpha1
 k8s.io/client-go/listers/storage/v1beta1
 k8s.io/client-go/openapi
-k8s.io/client-go/openapi/cached
 k8s.io/client-go/pkg/apis/clientauthentication
 k8s.io/client-go/pkg/apis/clientauthentication/install
 k8s.io/client-go/pkg/apis/clientauthentication/v1
@@ -1137,7 +1135,6 @@ k8s.io/client-go/pkg/version
 k8s.io/client-go/plugin/pkg/client/auth/exec
 k8s.io/client-go/rest
 k8s.io/client-go/rest/watch
-k8s.io/client-go/restmapper
 k8s.io/client-go/tools/auth
 k8s.io/client-go/tools/cache
 k8s.io/client-go/tools/cache/synctrack
@@ -1260,6 +1257,9 @@ open-cluster-management.io/api/client/cluster/listers/cluster/v1
 open-cluster-management.io/api/client/cluster/listers/cluster/v1alpha1
 open-cluster-management.io/api/client/cluster/listers/cluster/v1beta1
 open-cluster-management.io/api/client/cluster/listers/cluster/v1beta2
+open-cluster-management.io/api/client/operator/clientset/versioned
+open-cluster-management.io/api/client/operator/clientset/versioned/scheme
+open-cluster-management.io/api/client/operator/clientset/versioned/typed/operator/v1
 open-cluster-management.io/api/cluster/v1
 open-cluster-management.io/api/cluster/v1alpha1
 open-cluster-management.io/api/cluster/v1beta1
