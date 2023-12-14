@@ -101,6 +101,9 @@ func (n *controller) sync(ctx context.Context, controllerContext factory.SyncCon
 	}
 
 	kubeConfig, err := p.KubeConfig(clusterKey)
+	if errors.IsNotFound(err) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}

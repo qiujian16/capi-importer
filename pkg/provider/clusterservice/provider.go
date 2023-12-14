@@ -7,6 +7,7 @@ import (
 
 	sdk "github.com/openshift-online/ocm-sdk-go"
 	clustersmgmtv1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
+	"github.com/openshift-online/rh-trex/pkg/errors"
 	"github.com/qiujian16/capi-importer/pkg/provider"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -54,7 +55,7 @@ func (c *ClusterServiceProvider) KubeConfig(clusterKey string) (clientcmd.Client
 		return nil, err
 	}
 	if !exist {
-		return nil, fmt.Errorf("not found")
+		return nil, errors.NotFound("cluster is not found")
 	}
 	accesor, _ := meta.Accessor(cluster)
 	configString := accesor.GetAnnotations()["kubeconfig"]

@@ -9,6 +9,7 @@ import (
 	"github.com/qiujian16/capi-importer/pkg/importers/controllers"
 	"github.com/qiujian16/capi-importer/pkg/join"
 	"github.com/qiujian16/capi-importer/pkg/provider"
+	"github.com/qiujian16/capi-importer/pkg/provider/capi"
 	"github.com/qiujian16/capi-importer/pkg/provider/clusterservice"
 	"github.com/spf13/pflag"
 	"k8s.io/client-go/kubernetes"
@@ -66,6 +67,7 @@ func (o *ImporterOptions) RunImporterController(ctx context.Context, controllerC
 
 	providers := []provider.ClusterProvider{
 		clusterservice.NewClusterServiceProvider(o.CSToken),
+		capi.NewCAPIProvider(controllerContext.KubeConfig),
 	}
 
 	ctrl := controllers.NewController(
