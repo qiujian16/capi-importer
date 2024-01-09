@@ -1,6 +1,9 @@
 # github.com/NYTimes/gziphandler v1.1.1
 ## explicit; go 1.11
 github.com/NYTimes/gziphandler
+# github.com/RangelReale/osincli v0.0.0-20160924135400-fababb0555f2
+## explicit
+github.com/RangelReale/osincli
 # github.com/antlr/antlr4/runtime/Go/antlr/v4 v4.0.0-20230305170008-8188dc5388df
 ## explicit; go 1.18
 github.com/antlr/antlr4/runtime/Go/antlr/v4
@@ -163,8 +166,8 @@ github.com/mailru/easyjson/jwriter
 # github.com/matttproud/golang_protobuf_extensions v1.0.4
 ## explicit; go 1.9
 github.com/matttproud/golang_protobuf_extensions/pbutil
-# github.com/microcosm-cc/bluemonday v1.0.18
-## explicit; go 1.16
+# github.com/microcosm-cc/bluemonday v1.0.23
+## explicit; go 1.19
 github.com/microcosm-cc/bluemonday
 github.com/microcosm-cc/bluemonday/css
 # github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd
@@ -207,6 +210,10 @@ github.com/openshift-online/ocm-sdk-go/statusboard
 github.com/openshift-online/ocm-sdk-go/statusboard/v1
 github.com/openshift-online/ocm-sdk-go/webrca
 github.com/openshift-online/ocm-sdk-go/webrca/v1
+# github.com/openshift-online/rh-trex v0.0.0-20240102221436-85572ddc8fdd
+## explicit; go 1.21
+github.com/openshift-online/rh-trex/pkg/api/openapi
+github.com/openshift-online/rh-trex/pkg/errors
 # github.com/openshift/api v0.0.0-20231129134630-a782d1c1541c
 ## explicit; go 1.20
 github.com/openshift/api
@@ -298,6 +305,9 @@ github.com/openshift/library-go/pkg/controller/factory
 github.com/openshift/library-go/pkg/controller/fileobserver
 github.com/openshift/library-go/pkg/crypto
 github.com/openshift/library-go/pkg/network
+github.com/openshift/library-go/pkg/oauth/oauthdiscovery
+github.com/openshift/library-go/pkg/oauth/tokenrequest
+github.com/openshift/library-go/pkg/oauth/tokenrequest/challengehandlers
 github.com/openshift/library-go/pkg/operator/events
 github.com/openshift/library-go/pkg/operator/management
 github.com/openshift/library-go/pkg/operator/resource/resourceapply
@@ -312,6 +322,9 @@ github.com/pkg/errors
 # github.com/pkg/profile v1.3.0
 ## explicit
 github.com/pkg/profile
+# github.com/pmezard/go-difflib v1.0.0
+## explicit
+github.com/pmezard/go-difflib/difflib
 # github.com/prometheus/client_golang v1.16.0
 ## explicit; go 1.17
 github.com/prometheus/client_golang/prometheus
@@ -336,6 +349,9 @@ github.com/prometheus/procfs/internal/util
 # github.com/robfig/cron v1.2.0
 ## explicit
 github.com/robfig/cron
+# github.com/sethvargo/go-password v0.2.0
+## explicit; go 1.14
+github.com/sethvargo/go-password/password
 # github.com/sirupsen/logrus v1.9.0
 ## explicit; go 1.13
 github.com/sirupsen/logrus
@@ -348,6 +364,9 @@ github.com/spf13/pflag
 # github.com/stoewer/go-strcase v1.2.0
 ## explicit; go 1.11
 github.com/stoewer/go-strcase
+# github.com/stretchr/testify v1.8.2
+## explicit; go 1.13
+github.com/stretchr/testify/assert
 # go.etcd.io/etcd/api/v3 v3.5.9
 ## explicit; go 1.19
 go.etcd.io/etcd/api/v3/authpb
